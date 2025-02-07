@@ -18,10 +18,11 @@ class VideoCheckerApp:
         self.root = root
         self.root.title("【短剧组】视频文件检测工具")
         self.root.iconbitmap(icon_path)
-        self.root.geometry("500x300")
+        self.root.geometry("500x350")  # 增加一些空间以适应新的组件
 
         # 变量
         self.folder_path = tk.StringVar()  # 文件夹路径
+        self.timeout = tk.IntVar(value=5)  # 默认超时时间
         self.running = False  # 是否正在检测
         self.progress = 0  # 检测进度
         self.total_files = 0  # 总文件数
@@ -37,19 +38,25 @@ class VideoCheckerApp:
         tk.Entry(self.root, textvariable=self.folder_path, width=40).grid(row=0, column=1, padx=10, pady=10)
         tk.Button(self.root, text="浏览", command=self.select_folder).grid(row=0, column=2, padx=10, pady=10)
 
+        # 超时时间设置
+        tk.Label(self.root, text="请输入超时时间(秒):").grid(row=1, column=0, padx=10, pady=10)
+        tk.Entry(self.root, textvariable=self.timeout, width=40).grid(row=1, column=1, padx=10, pady=10)
+
+        # 超时提示
+        tk.Label(self.root, text="建议超时时间: ").grid(row=2, column=0, padx=10, pady=10)
+        tk.Label(self.root, text="3-10秒;几十MB>=3;几百MB>=5;几GB>=10;", width=40).grid(row=2, column=1, padx=10, pady=10)
+
         # 进度条
         self.progress_bar = ttk.Progressbar(self.root, orient="horizontal", length=400, mode="determinate")
-        self.progress_bar.grid(row=1, column=0, columnspan=3, padx=10, pady=10)
+        self.progress_bar.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
 
         # 开始/停止按钮
         self.start_button = tk.Button(self.root, text="开始校验", command=self.start_check)
-        self.start_button.grid(row=2, column=0, padx=10, pady=10)
-        # self.stop_button = tk.Button(self.root, text="停止校验", command=self.stop_check, state=tk.DISABLED)
-        # self.stop_button.grid(row=2, column=1, padx=10, pady=10)
+        self.start_button.grid(row=4, column=0, padx=10, pady=10)
 
         # 结果显示
         self.result_text = tk.Text(self.root, height=10, width=50)
-        self.result_text.grid(row=3, column=0, columnspan=3, padx=10, pady=10)
+        self.result_text.grid(row=5, column=0, columnspan=3, padx=10, pady=10)
 
     def select_folder(self):
         """选择文件夹"""
@@ -63,13 +70,19 @@ class VideoCheckerApp:
             messagebox.showwarning("警告", "请先选择文件夹！")
             return
 
+        # 获取用户输入的超时时间
+        timeout_value = self.timeout.get()
+
+        if timeout_value < 1 or timeout_value > 60:
+            messagebox.showwarning("警告", "超时时间应在1到60秒之间！")
+            return
+
         # 初始化
         self.running = True
         self.progress = 0
         self.unplayable_videos = []
         self.result_text.delete(1.0, tk.END)  # 清空结果显示
         self.start_button.config(state=tk.DISABLED)
-        # self.stop_button.config(state=tk.NORMAL)
 
         # 获取视频文件
         video_files = [
@@ -84,8 +97,10 @@ class VideoCheckerApp:
             return
 
         # 启动检测线程
-        self.detection_thread = threading.Thread(target=self.check_videos, args=(video_files,))
+        self.detection_thread = threading.Thread(target=self.check_videos, args=(video_files, timeout_value))
         self.detection_thread.start()
+
+        self.result_text.insert(tk.END, "以下视频文件不可播放：\n")
 
         # 更新进度条
         self.update_progress()
@@ -94,9 +109,8 @@ class VideoCheckerApp:
         """停止检测"""
         self.running = False
         self.start_button.config(state=tk.NORMAL)
-        # self.stop_button.config(state=tk.DISABLED)
 
-    def check_videos(self, video_files):
+    def check_videos(self, video_files, timeout_value):
         """检测视频文件"""
         for idx, video_file in enumerate(video_files):
             if not self.running:
@@ -107,12 +121,11 @@ class VideoCheckerApp:
             command = [FFMPEG_PATH, '-v', 'error', '-i', video_path, '-vf', 'select=eq(n\,0)', '-f', 'null', '-']
 
             try:
-                # 会弹出终端窗口
-                # subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)  # 设置超时时间
-                # 不会弹出终端窗口
-                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW, timeout=3)  # 设置超时时间
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                               creationflags=subprocess.CREATE_NO_WINDOW, timeout=timeout_value)  # 使用用户设置的超时时间
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 self.unplayable_videos.append(video_file)
+                self.result_text.insert(tk.END, f"{video_file}\n")
 
             # 更新进度
             self.progress = (idx + 1) / self.total_files * 100
@@ -131,15 +144,10 @@ class VideoCheckerApp:
 
     def show_results(self):
         """显示检测结果"""
-        if self.unplayable_videos:
-            self.result_text.insert(tk.END, "以下视频文件不可播放：\n")
-            for video in self.unplayable_videos:
-                self.result_text.insert(tk.END, f"{video}\n")
-        else:
+        if not self.unplayable_videos:
             self.result_text.insert(tk.END, "所有视频文件均可播放。\n")
 
         self.start_button.config(state=tk.NORMAL)
-        # self.stop_button.config(state=tk.DISABLED)
 
 # 运行程序
 if __name__ == "__main__":
